@@ -1,0 +1,231 @@
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>three.js + Cubes & Colors</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js"></script>
+    <script type="module">
+      import * as THREE from 'https://cdn.skypack.dev/three@0.136.0/build/three.module.js';
+      import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
+      import { EffectComposer } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/EffectComposer.js';
+      import { RenderPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/RenderPass.js';
+      import { UnrealBloomPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+      import { ShaderPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/ShaderPass.js';
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0,0,20);
+
+      const renderer = new THREE.WebGLRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+
+      let composer;
+      composer = new EffectComposer(renderer);
+      const renderPass = new RenderPass(scene, camera);
+      composer.addPass(renderPass);
+
+      const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight));
+      bloomPass.strength = 0.5;
+      bloomPass.threshold = 0.1;
+      bloomPass.radius = 0.8;
+      composer.addPass(bloomPass);
+
+      const scanLineShader = {
+        blending: THREE.AdditiveBlending,
+        uniforms: {
+          "tDiffuse": { value: null },
+          "time": { value: 0.0 },
+          "lineHeight": { value: 4.0 },
+          "lineSpacing": { value: 2.0 },
+          "opacity": { value: 0.15 }
+        },
+        vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+        fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform float time;
+        uniform float lineHeight;
+        uniform float lineSpacing;
+        uniform float opacity;
+        varying vec2 vUv;
+
+        void main() {
+            vec4 color = texture2D(tDiffuse, vUv);
+            float scanline = step(lineSpacing, mod(gl_FragCoord.y, lineHeight)) * opacity;
+            color.rgb += scanline;
+            gl_FragColor = color;
+        }
+    `
+      };
+
+      const scanLinePass = new ShaderPass(scanLineShader);
+      composer.addPass(scanLinePass);
+
+      const ambientLight = new THREE.AmbientLight(0x404040);
+      scene.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+      directionalLight.position.set(5, 5, 5).normalize();
+      scene.add(directionalLight);
+
+      const cubes = [];
+      const velocities = [];
+
+      function getRandomColor() {
+        return Math.random() * 0xffffff;
+      }
+
+      function generateRandomCubes(numCubes) {
+
+        while (scene.children.length > 0) {
+          scene.remove(scene.children[0]);
+        }
+        scene.add(ambientLight);
+        scene.add(directionalLight);
+        cubes.length = 0;
+        velocities.length = 0;  
+
+        for (let i = 0; i < numCubes; i++) {
+          const geometry = new THREE.BoxGeometry();
+
+          const materials = [
+            new THREE.MeshStandardMaterial({ color: getRandomColor(), roughness: Math.random(), metalness: Math.random() }),
+            new THREE.MeshPhongMaterial({ color: getRandomColor(), shininess: Math.random() * 100 }),
+            new THREE.MeshBasicMaterial({ color: getRandomColor() })
+          ];
+          const material = materials[Math.floor(Math.random() * materials.length)];
+
+          const cube = new THREE.Mesh(geometry, material);
+
+          cube.position.x = Math.random() * 10 - 5;
+          cube.position.y = Math.random() * 10 - 5;
+          cube.position.z = Math.random() * 10 - 5;
+
+          const velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * 0.9,
+            (Math.random() - 0.5) * 0.1,
+            (Math.random() - 0.5) * 0.1
+          );
+
+          scene.add(cube);
+          cubes.push(cube);
+          velocities.push(velocity);
+        }
+      }
+
+      generateRandomCubes(500);
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        for (let i = 0; i < cubes.length; i++) {
+          cubes[i].position.add(velocities[i]);
+
+          if (cubes[i].position.x > 5 || cubes[i].position.x < -5) velocities[i].x = -velocities[i].x;
+          if (cubes[i].position.y > 5 || cubes[i].position.y < -5) velocities[i].y = -velocities[i].y;
+          if (cubes[i].position.z > 5 || cubes[i].position.z < -5) velocities[i].z = -velocities[i].z;
+        }
+
+        controls.update();
+        renderer.render(scene, camera);
+        composer.render();
+      }
+
+      animate();
+
+      function animateColorChange() {
+        cubes.forEach(cube => {
+          const newColor = new THREE.Color(getRandomColor());
+          anime({
+            targets: cube.material.color,
+            r: newColor.r,
+            g: newColor.g,
+            b: newColor.b,
+            duration: 2000,
+            easing: 'easeInOutQuad'
+          });
+        });
+      }
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      window.addEventListener('dblclick', () => {
+        generateRandomCubes(500);
+        animateColorChange();
+      });
+
+      document.addEventListener('DOMContentLoaded', () => {
+        const titlesData = [
+          { text: 'three.js + Cubes & Colors', position: { top: '20px', left: '-200px' }, finalPosition: { left: '30px' } },
+          { text: 'double click', position: { bottom: '20px', left: '-200px' }, finalPosition: { left: '30px' } },
+          { text: 'fullscreen on', position: { bottom: '20px', right: '-200px' }, finalPosition: { right: '30px' }, isClickable: true }
+        ];
+
+        titlesData.forEach((data, index) => {
+          const title = document.createElement('h3');
+          title.classList.add('title', `_title${index + 1}`);
+          title.textContent = data.text;
+          title.style.position = 'absolute';
+          title.style.fontFamily = 'arial';
+          title.style.color = '#fff';
+          title.style.fontSize = '.8rem';
+          title.style.opacity = 0;
+
+          for (const [key, value] of Object.entries(data.position)) {
+            title.style[key] = value;
+          }
+
+          document.body.appendChild(title);
+
+          anime({
+            targets: title,
+            ...data.finalPosition,
+            opacity: 1,
+            duration: 2000,
+            easing: 'easeOutQuad',
+            delay: 500
+          });
+
+          if (data.isClickable) {
+            title.style.cursor = 'pointer';
+            title.addEventListener('click', toggleFullscreen);
+          }
+        });
+      });
+
+      function toggleFullscreen() {
+        const title3 = document.querySelector('.title._title3');
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen();
+          title3.textContent = 'fullscreen off';
+        } else if (document.exitFullscreen) {
+          document.exitFullscreen();
+          title3.textContent = 'fullscreen on';
+        }
+      }
+    </script>
+  </body>
+</html>
